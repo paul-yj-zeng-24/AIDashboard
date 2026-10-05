@@ -9,11 +9,15 @@ page turns them into bubbles; this file turns them into printed text.
 """
 import sys
 
-from app.agent.loop import run_turn
+from app.agent.loop import conversation_exists, run_turn
 from app.db.session import init_db
 
 init_db()
 conversation_id = int(sys.argv[1]) if len(sys.argv) > 1 else None
+# Check the id up front, so a typo doesn't quietly start somewhere else.
+if conversation_id is not None and not conversation_exists(conversation_id):
+    sys.exit(f"There is no conversation {conversation_id}. "
+             "Run `uv run python cli.py` without an id to start a new one.")
 print("AI Dashboard chat. /quit to exit.\n")
 
 while True:

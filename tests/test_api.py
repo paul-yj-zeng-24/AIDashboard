@@ -2,8 +2,11 @@
 import json
 
 from fastapi.testclient import TestClient
+from sqlmodel import select
 
 from app.agent.llm import ModelReply, TextDelta, ToolCall
+from app.db.models import Conversation, Message
+from app.db.session import new_session
 from app.main import app
 
 client = TestClient(app)
@@ -38,6 +41,17 @@ def test_chat_streams_events_and_lists_conversation(fake_llm):
 
     steps = client.get(f"/api/runs/{run_id}").json()
     assert [s["kind"] for s in steps] == ["model", "tool", "model"]
+
+
+def test_unknown_conversation_is_404_and_writes_nothing(fake_llm):
+    """E.g. a tab still open after data/app.db was deleted. The server must
+    refuse, not silently start a new thread on every message."""
+    fake_llm([[TextDelta("hi"), ModelReply("hi")]])  # in case the model is (wrongly) called
+    response = client.post("/api/chat", json={"message": "hello?", "conversation_id": 999})
+    assert response.status_code == 404
+    with new_session() as s:
+        assert s.exec(select(Conversation)).all() == []
+        assert s.exec(select(Message)).all() == []
 
 
 def test_empty_message_rejected():

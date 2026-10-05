@@ -55,9 +55,16 @@ async def sse(events: Generator[dict, None, None]) -> AsyncIterator[str]:
 
 
 @router.post("/chat")
-async def chat(req: ChatRequest):
+def chat(req: ChatRequest):
+    # A plain `def` (not `async def`): the existence check below is a
+    # blocking database call, and FastAPI runs `def` routes in a background
+    # thread so the server never waits on it.
     if not req.message.strip():
         raise HTTPException(400, "Empty message")
+    # Refuse an unknown conversation BEFORE streaming starts, so nothing is
+    # written and the page gets a plain 404 it can react to.
+    if req.conversation_id is not None and not loop.conversation_exists(req.conversation_id):
+        raise HTTPException(404, "No such conversation")
     # StreamingResponse pulls from sse() and sends each piece as soon as it's
     # yielded.
     return StreamingResponse(

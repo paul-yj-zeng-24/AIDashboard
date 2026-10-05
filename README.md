@@ -90,4 +90,8 @@ until the approval queue exists (Phase 4) the registry refuses to run them.
 
 - Changing a table in `db/models.py`: the app creates missing tables but
   doesn't alter existing ones. While developing, delete `data/app.db`.
+  A chat tab that was open at the time will say its conversation no longer
+  exists the next time you send, switch to a new chat and keep your message
+  in the box. Nothing is saved until you send again. Likewise
+  `cli.py <id>` with an id that doesn't exist stops with a message.
 - The full design and roadmap are in the AIDashboard design doc.

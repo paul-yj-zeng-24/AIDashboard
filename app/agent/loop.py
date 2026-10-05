@@ -44,8 +44,17 @@ from app.db.session import new_session
 from app.tools import registry
 
 
+def conversation_exists(conversation_id: int) -> bool:
+    with new_session() as session:
+        return session.get(Conversation, conversation_id) is not None
+
+
 def run_turn(conversation_id: int | None, user_text: str) -> Iterator[dict]:
-    """Handle one user message from start to finish, yielding events."""
+    """Handle one user message from start to finish, yielding events.
+
+    conversation_id=None starts a new conversation. An id that doesn't exist
+    ends the turn with an error event and saves nothing.
+    """
     run_id = uuid.uuid4().hex[:12]  # short random id that groups this turn's traces
     shown: list[str] = []           # every piece of text the user saw, saved at the end
     saved_question = False
@@ -161,17 +170,31 @@ def _note(shown: list[str], text: str) -> Iterator[dict]:
     yield {"type": "text", "delta": piece}
 
 
+class ConversationNotFound(LookupError):
+    """A conversation id was given but doesn't exist, for example because
+    data/app.db was deleted while a chat tab was still open."""
+
+
 def _save_message(conversation_id: int | None, role: str, content: str,
                   run_id: str | None = None) -> int:
-    """Store one message; create the conversation first if needed. Returns its id."""
+    """Store one message. Returns its conversation's id.
+
+    conversation_id=None starts a new conversation. An id that doesn't exist
+    raises ConversationNotFound instead of quietly starting a new one: the
+    caller would keep sending the old id, and every message would land in yet
+    another new thread with no history.
+    """
     with new_session() as session:
-        conversation = session.get(Conversation, conversation_id) if conversation_id else None
-        if conversation is None:
+        if conversation_id is None:
             # New thread: title it after the first words of the first message.
             first_line = content.strip().splitlines()[0] if content.strip() else "New chat"
             conversation = Conversation(title=first_line[:60])
             session.add(conversation)
             session.flush()  # asks the database for the new id without finishing
+        else:
+            conversation = session.get(Conversation, conversation_id)
+            if conversation is None:
+                raise ConversationNotFound(f"There is no conversation {conversation_id}.")
         conversation.updated_at = utcnow()
         session.add(Message(conversation_id=conversation.id, role=role, content=content, run_id=run_id))
         session.commit()

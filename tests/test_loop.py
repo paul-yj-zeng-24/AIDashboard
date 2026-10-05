@@ -4,7 +4,7 @@ from sqlmodel import select
 from app import config
 from app.agent import loop
 from app.agent.llm import ModelReply, TextDelta, ToolCall
-from app.db.models import Message, Trace
+from app.db.models import Conversation, Message, Trace
 from app.db.session import new_session
 
 
@@ -26,6 +26,21 @@ def test_plain_answer_streams_and_is_saved(fake_llm):
         assert all(m.conversation_id == conversation_id and m.run_id == run_id for m in msgs)
         traces = s.exec(select(Trace)).all()
         assert [(t.kind, t.tokens_in, t.tokens_out) for t in traces] == [("model", 50, 3)]
+
+
+def test_unknown_conversation_creates_nothing(fake_llm):
+    """An id that doesn't exist is an error, for every caller (web, CLI, ...).
+    Only conversation_id=None starts a new thread."""
+    fake_llm([[TextDelta("hi"), ModelReply("hi")], [TextDelta("hi"), ModelReply("hi")]])
+    events = events_of(999, "hello?")
+    assert any(e["type"] == "error" for e in events)
+    with new_session() as s:
+        assert s.exec(select(Conversation)).all() == []
+        assert s.exec(select(Message)).all() == []
+
+    events = events_of(None, "hello?")
+    with new_session() as s:
+        assert [c.id for c in s.exec(select(Conversation))] == [events[0]["id"]]
 
 
 def test_tool_round_then_answer(fake_llm):
