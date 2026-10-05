@@ -18,6 +18,12 @@ uv run pytest                           # tests (no API key or network needed)
 ```
 
 Any OpenAI-compatible provider works, but the model must support tool calling.
+
+The server only answers requests addressed to the host names in
+`ALLOWED_HOSTS` (default `localhost,127.0.0.1`); anything else gets a 400.
+That stops other websites from reaching your chats through your browser.
+To open the app from your phone over Tailscale, add your computer's
+Tailscale machine name to `ALLOWED_HOSTS` in `.env`.
 `http://localhost:8000/traces` shows what the agent did for each message;
 `http://localhost:8000/docs` lists every API endpoint.
 

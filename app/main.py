@@ -15,7 +15,9 @@ from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app import config
 from app.api import chat, traces
 from app.db.session import init_db
 
@@ -31,6 +33,10 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="AI Dashboard", lifespan=lifespan)
+# Middleware = code that runs on every request before any route sees it.
+# This one answers 400 to any request whose Host header isn't in
+# ALLOWED_HOSTS (see config.py for why).
+app.add_middleware(TrustedHostMiddleware, allowed_hosts=config.ALLOWED_HOSTS)
 app.include_router(chat.router)
 app.include_router(traces.router)
 

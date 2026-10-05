@@ -37,6 +37,13 @@ DATA_DIR = Path(os.getenv("DATA_DIR", PROJECT_DIR / "data"))
 DB_PATH = DATA_DIR / "app.db"
 PROFILE_PATH = DATA_DIR / "profile.md"
 
+# --- Who may talk to the server ---------------------------------------------
+# Host names the server answers to. Requests naming any other host get 400.
+# Why: a web page you visit could point its own domain at 127.0.0.1 ("DNS
+# rebinding") and read your chats through this server. Checking the Host
+# header stops that. Comma-separated in .env, e.g. "localhost,127.0.0.1,mymac".
+ALLOWED_HOSTS = [h.strip() for h in os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",") if h.strip()]
+
 # --- About you ------------------------------------------------------------------
 HOME_NAME = os.getenv("HOME_NAME", "Berkeley, CA")
 HOME_LATITUDE = float(os.getenv("HOME_LATITUDE", "37.8716"))

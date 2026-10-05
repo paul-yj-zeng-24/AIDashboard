@@ -9,7 +9,9 @@ from app.db.models import Conversation, Message
 from app.db.session import new_session
 from app.main import app
 
-client = TestClient(app)
+# TestClient sends "Host: testserver" by default, which the server rightly
+# refuses. Use localhost, the real default in ALLOWED_HOSTS.
+client = TestClient(app, base_url="http://localhost")
 
 
 def read_sse(response) -> list[dict]:
@@ -54,6 +56,15 @@ def test_unknown_conversation_is_404_and_writes_nothing(fake_llm):
         assert s.exec(select(Message)).all() == []
 
 
+def test_foreign_host_is_rejected():
+    """DNS rebinding: a web page can point its own domain at 127.0.0.1, and
+    the browser then sends that domain as the Host header. Only the names in
+    ALLOWED_HOSTS may read chats and traces."""
+    foreign = TestClient(app, base_url="http://evil.example.com")
+    assert foreign.get("/api/runs").status_code == 400
+    assert client.get("/api/runs").status_code == 200  # Host: localhost
+
+
 def test_empty_message_rejected():
     assert client.post("/api/chat", json={"message": "   "}).status_code == 400
 
@@ -64,6 +75,6 @@ def test_missing_things_are_404():
 
 
 def test_pages_are_served():
-    with TestClient(app) as c:  # `with` runs startup (init_db), like the real server
+    with TestClient(app, base_url="http://localhost") as c:  # `with` runs startup (init_db), like the real server
         assert "AI Dashboard" in c.get("/").text
         assert "Trace view" in c.get("/traces").text
