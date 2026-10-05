@@ -5,108 +5,297 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AI Dashboard</title>
 <style>
-  :root { --bg:#fafaf9; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4; --me:#1c1917; --me-fg:#fafaf9; --ai:#f0efed; }
+  :root { --bg:#fafaf9; --panel:#f3f2f0; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4;
+          --me:#1c1917; --me-fg:#fafaf9; --ai:#ffffff; --accent:#2563eb; --bad:#dc2626; --ok:#16a34a; }
   @media (prefers-color-scheme: dark) {
-    :root { --bg:#161514; --fg:#e7e5e4; --muted:#a8a29e; --line:#2e2b29; --me:#e7e5e4; --me-fg:#161514; --ai:#242220; }
+    :root { --bg:#161514; --panel:#1d1c1a; --fg:#e7e5e4; --muted:#a8a29e; --line:#2e2b29;
+            --me:#e7e5e4; --me-fg:#161514; --ai:#242220; --accent:#60a5fa; --bad:#f87171; --ok:#4ade80; }
   }
   * { box-sizing: border-box; }
-  body { margin:0; height:100dvh; display:flex; flex-direction:column; background:var(--bg); color:var(--fg);
+  body { margin:0; height:100dvh; display:flex; background:var(--bg); color:var(--fg);
          font:15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
-  header { padding:14px 20px; border-bottom:1px solid var(--line); font-weight:600; }
-  #log { flex:1; overflow-y:auto; padding:20px; display:flex; flex-direction:column; gap:10px;
-         max-width:760px; width:100%; margin:0 auto; }
-  .msg { max-width:80%; padding:9px 13px; border-radius:14px; white-space:pre-wrap; word-wrap:break-word; }
-  .user { align-self:flex-end; background:var(--me); color:var(--me-fg); }
-  .assistant { align-self:flex-start; background:var(--ai); }
-  .error { align-self:center; color:#dc2626; font-size:13px; }
+  a { color: inherit; }
+
+  /* Sidebar: conversation list */
+  aside { width:250px; flex-shrink:0; display:flex; flex-direction:column; background:var(--panel);
+          border-right:1px solid var(--line); }
+  aside header { padding:14px 16px; font-weight:600; display:flex; justify-content:space-between; align-items:center; }
+  #new { border:1px solid var(--line); background:transparent; color:inherit; border-radius:8px;
+         padding:4px 10px; font:inherit; font-size:13px; cursor:pointer; }
+  #convs { flex:1; overflow-y:auto; padding:4px 8px; }
+  #convs a { display:block; padding:7px 10px; border-radius:8px; text-decoration:none; font-size:14px;
+             white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #convs a:hover { background:var(--line); }
+  #convs a.active { background:var(--line); font-weight:600; }
+  aside footer { padding:12px 16px; border-top:1px solid var(--line); font-size:13px; }
+  aside footer a { color:var(--muted); }
+
+  /* Main column: messages + input */
+  main { flex:1; display:flex; flex-direction:column; min-width:0; }
+  #topbar { display:none; padding:10px 16px; border-bottom:1px solid var(--line); align-items:center; gap:10px; font-weight:600; }
+  #menu { border:1px solid var(--line); background:transparent; color:inherit; border-radius:8px;
+          padding:2px 9px; font-size:16px; cursor:pointer; }
+  #log { flex:1; overflow-y:auto; padding:24px 20px; display:flex; flex-direction:column; gap:14px;
+         max-width:780px; width:100%; margin:0 auto; }
+  .user { align-self:flex-end; max-width:80%; background:var(--me); color:var(--me-fg);
+          padding:9px 13px; border-radius:14px; white-space:pre-wrap; word-wrap:break-word; }
+  .assistant { align-self:flex-start; max-width:88%; }
+  .assistant .msg { background:var(--ai); border:1px solid var(--line); padding:9px 13px; border-radius:14px;
+                    white-space:pre-wrap; word-wrap:break-word; }
+  .assistant .msg:empty::after { content:"…"; color:var(--muted); }
+  .assistant code { font-size:13px; background:var(--panel); padding:1px 4px; border-radius:4px; }
+  .steps { display:flex; flex-direction:column; gap:2px; margin:0 0 6px 4px; font-size:12.5px; color:var(--muted); }
+  .steps .ok::after { content:" · done"; color:var(--ok); }
+  .steps .failed::after { content:" · failed"; color:var(--bad); }
+  .meta { margin:4px 0 0 4px; font-size:12px; color:var(--muted); }
+  .error { color:var(--bad); font-size:13px; margin:4px 0 0 4px; }
+  #empty { margin:auto; text-align:center; color:var(--muted); }
+  #empty button { margin:6px 4px 0; border:1px solid var(--line); background:transparent; color:var(--fg);
+                  border-radius:16px; padding:6px 12px; font:inherit; font-size:13.5px; cursor:pointer; }
+
   form { display:flex; gap:8px; padding:14px 20px; border-top:1px solid var(--line);
-         max-width:760px; width:100%; margin:0 auto; }
+         max-width:780px; width:100%; margin:0 auto; }
   textarea { flex:1; resize:none; padding:10px 12px; border:1px solid var(--line); border-radius:10px;
              background:transparent; color:inherit; font:inherit; }
-  button { padding:0 18px; border:0; border-radius:10px; background:var(--me); color:var(--me-fg);
-           font:inherit; cursor:pointer; }
-  button:disabled { opacity:.4; cursor:default; }
+  #send { padding:0 18px; border:0; border-radius:10px; background:var(--me); color:var(--me-fg);
+          font:inherit; cursor:pointer; }
+  #send:disabled { opacity:.4; cursor:default; }
+
+  /* Phones: the sidebar becomes a drawer opened from a top bar. */
+  @media (max-width: 720px) {
+    aside { position:fixed; inset:0 auto 0 0; z-index:10; transform:translateX(-100%); transition:transform .2s; }
+    aside.open { transform:none; box-shadow:0 0 0 100vmax rgba(0,0,0,.25); }
+    #topbar { display:flex; }
+    #log, form { padding-left:16px; padding-right:16px; }
+  }
 </style>
 </head>
 <body>
-<header>AI Dashboard</header>
-<div id="log"></div>
-<form id="form">
-  <textarea id="input" rows="1" placeholder="Message…" autofocus></textarea>
-  <button id="send">Send</button>
-</form>
+<aside id="sidebar">
+  <header>AI Dashboard <button id="new">New chat</button></header>
+  <nav id="convs"></nav>
+  <footer><a href="/traces">Trace view: what the agent did</a></footer>
+</aside>
+
+<main>
+  <div id="topbar"><button id="menu" aria-label="Conversations">☰</button> AI Dashboard</div>
+  <div id="log"></div>
+  <form id="form">
+    <textarea id="input" rows="1" placeholder="Message…" autofocus></textarea>
+    <button id="send">Send</button>
+  </form>
+</main>
 
 <script>
   // ---------------------------------------------------------------------
-  // The front-end. Its only jobs: keep the conversation, send it to the
-  // server, and display replies. All AI logic is on the server.
+  // The front-end. Its jobs: show the conversation list, show a thread,
+  // send a message, and display the streamed reply as events arrive.
+  // All AI logic is on the server (app/agent/loop.py).
+  //
+  // New in Phase 1: the SERVER keeps the conversation (in SQLite). The page
+  // only remembers which conversation is open, in the URL: /#c=7.
   // ---------------------------------------------------------------------
 
-  // The whole conversation lives here, as [{role, content}, ...]. The server
-  // remembers nothing, so we send this entire array with every message.
-  // Refreshing the page resets it (that's why the chat clears).
-  const history = [];
+  let conversationId = null;   // null = a new chat that has no id yet
+  let busy = false;            // true while a reply is streaming
 
-  // Grab the page elements we'll work with (defined in the HTML above).
-  const log = document.getElementById("log");      // the message list
-  const input = document.getElementById("input");  // the text box
-  const send = document.getElementById("send");    // the Send button
+  const $ = id => document.getElementById(id);
+  const log = $("log"), input = $("input"), send = $("send");
 
-  // Add one chat bubble to the page and return it (so we can update it later).
-  // `role` doubles as the CSS class: "user", "assistant" or "error".
-  function show(role, text) {
-    const div = document.createElement("div");
-    div.className = "msg " + role;
-    div.textContent = text;   // textContent (not innerHTML) so text is never run as HTML
-    log.appendChild(div);
-    log.scrollTop = log.scrollHeight;   // scroll to the newest message
-    return div;
+  // --- Small helpers ----------------------------------------------------
+
+  // Never put model text into the page as HTML (it could contain <script>).
+  // Escape it first, then add the two bits of formatting models use most.
+  function escapeHtml(s) {
+    return s.replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+  }
+  function format(text) {
+    return escapeHtml(text)
+      .replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")   // **bold**
+      .replace(/`([^`\n]+)`/g, "<code>$1</code>");        // `code`
+  }
+  function el(tag, cls, text) {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  }
+  function scrollDown() { log.scrollTop = log.scrollHeight; }
+
+  // --- Drawing messages -------------------------------------------------
+
+  function addUser(text) {
+    log.appendChild(el("div", "user", text));
+    scrollDown();
   }
 
-  // Runs when you press Enter or click Send.
-  // `async` lets us `await` the server's reply without freezing the page.
-  async function submit() {
-    const text = input.value.trim();
-    if (!text) return;
-    input.value = "";
-    send.disabled = true;   // block double-sends while waiting
+  // An assistant turn = tool steps (small grey lines) + the reply bubble +
+  // a link to its trace. Returns functions to update it while streaming.
+  function addAssistant(initialText = "") {
+    const turn = el("div", "assistant");
+    const steps = el("div", "steps");
+    const msg = el("div", "msg");
+    turn.append(steps, msg);
+    log.appendChild(turn);
+    let text = initialText;
+    msg.innerHTML = format(text);
+    scrollDown();
+    return {
+      append(piece) { text += piece; msg.innerHTML = format(text); scrollDown(); },
+      toolStart(name, args) {
+        let shown = "";
+        try { shown = Object.values(JSON.parse(args || "{}")).join(", "); } catch {}
+        const line = el("div", "", `using ${name}${shown ? " (" + shown + ")" : ""}`);
+        steps.appendChild(line);
+        scrollDown();
+        return line;
+      },
+      error(message) { turn.appendChild(el("div", "error", message)); },
+      setRun(runId) {
+        const meta = el("div", "meta");
+        const a = el("a", "", "trace");
+        a.href = "/traces#run=" + runId;
+        meta.appendChild(a);
+        turn.appendChild(meta);
+      },
+      // After an error with no text, drop the empty "…" bubble (keep the error line).
+      hideIfEmpty() { if (text === "") msg.remove(); },
+    };
+  }
 
-    // Show your message right away, plus a "…" placeholder for the reply.
-    history.push({ role: "user", content: text });
-    show("user", text);
-    const pending = show("assistant", "…");
+  function showEmpty() {
+    const box = el("div", "");
+    box.id = "empty";
+    box.appendChild(el("div", "", "Ask about the weather, the time anywhere, or anything else."));
+    for (const q of ["What's the weather this week?", "What time is it in Shanghai?"]) {
+      const b = el("button", "", q);
+      b.onclick = () => { input.value = q; submit(); };
+      box.appendChild(b);
+    }
+    log.appendChild(box);
+  }
 
-    try {
-      // Send the whole conversation to server.py's /api/chat endpoint.
-      // The server answers with {"reply": "..."} or, on failure, {"error": "..."}.
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || res.statusText);   // jump to catch below
+  // --- Loading from the server ------------------------------------------
 
-      // Success: replace "…" with the reply and remember it for next turn.
-      pending.textContent = data.reply;
-      history.push({ role: "assistant", content: data.reply });
-    } catch (err) {
-      pending.remove();
-      history.pop(); // drop the unanswered message so you can retry
-      show("error", "Error: " + err.message);
-    } finally {
-      send.disabled = false;
-      input.focus();
+  async function loadSidebar() {
+    const convs = await (await fetch("/api/conversations")).json();
+    const nav = $("convs");
+    nav.innerHTML = "";
+    for (const c of convs) {
+      const a = el("a", c.id === conversationId ? "active" : "", c.title || "Untitled");
+      a.href = "#c=" + c.id;
+      nav.appendChild(a);
     }
   }
 
-  // Wire up the controls. preventDefault() stops the browser's default form
-  // behaviour (reloading the page). Enter sends; Shift+Enter adds a new line;
-  // isComposing skips Enter presses that confirm Chinese/Japanese IME input.
-  document.getElementById("form").addEventListener("submit", e => { e.preventDefault(); submit(); });
+  // Open the conversation named in the URL (or an empty new chat).
+  let openCount = 0;  // to ignore a slow load once a newer one has started
+  async function openFromUrl() {
+    if (busy) {  // don't switch threads while a reply is streaming: put the URL back
+      history.replaceState(null, "", conversationId === null ? "#" : "#c=" + conversationId);
+      return;
+    }
+    const ticket = ++openCount;
+    const match = location.hash.match(/c=(\d+)/);
+    conversationId = match ? Number(match[1]) : null;
+    $("sidebar").classList.remove("open");
+    if (conversationId === null) { log.innerHTML = ""; showEmpty(); loadSidebar(); return; }
+
+    const res = await fetch(`/api/conversations/${conversationId}/messages`);
+    const messages = res.ok ? await res.json() : null;
+    if (ticket !== openCount) return;
+    if (!messages) { location.hash = ""; return; }
+    log.innerHTML = "";
+    for (const m of messages) {
+      if (m.role === "user") addUser(m.content);
+      else { const a = addAssistant(m.content); if (m.run_id) a.setRun(m.run_id); }
+    }
+    loadSidebar();
+  }
+
+  // --- Sending a message and reading the stream --------------------------
+
+  async function submit() {
+    const text = input.value.trim();
+    if (!text || busy) return;
+    busy = true; send.disabled = true; input.value = "";
+    $("empty")?.remove();
+
+    addUser(text);
+    const reply = addAssistant();
+    let currentStep = null;
+
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: text, conversation_id: conversationId }),
+      });
+      if (!res.ok) {
+        // FastAPI errors look like {"detail": "..."}; anything else, use the status text.
+        let detail = null;
+        try { detail = (await res.json()).detail; } catch {}
+        throw new Error(typeof detail === "string" ? detail : `${res.status} ${res.statusText}`);
+      }
+
+      // The response body arrives in chunks. Each event is a line
+      // "data: {...}" followed by a blank line. A chunk can end mid-event,
+      // so we keep leftovers in `buffer` until the blank line shows up.
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let cut;
+        while ((cut = buffer.indexOf("\n\n")) >= 0) {
+          const line = buffer.slice(0, cut);
+          buffer = buffer.slice(cut + 2);
+          if (!line.startsWith("data: ")) continue;
+          const event = JSON.parse(line.slice(6));
+
+          // One branch per event type yielded by run_turn() in loop.py.
+          if (event.type === "conversation") {
+            if (conversationId === null) {
+              conversationId = event.id;
+              // Put the new id in the URL without reloading the page.
+              history.replaceState(null, "", "#c=" + event.id);
+            }
+          } else if (event.type === "text") {
+            reply.append(event.delta);
+          } else if (event.type === "tool_start") {
+            currentStep = reply.toolStart(event.name, event.arguments);
+          } else if (event.type === "tool_end") {
+            currentStep?.classList.add(event.ok ? "ok" : "failed");
+          } else if (event.type === "error") {
+            reply.error("Error: " + event.message);
+          } else if (event.type === "done") {
+            reply.setRun(event.run_id);
+          }
+        }
+      }
+    } catch (err) {
+      reply.error("Error: " + err.message);
+    } finally {
+      reply.hideIfEmpty();
+      busy = false; send.disabled = false; input.focus();
+      loadSidebar();  // the new/updated conversation moves to the top
+    }
+  }
+
+  // --- Wiring -------------------------------------------------------------
+
+  $("form").addEventListener("submit", e => { e.preventDefault(); submit(); });
+  // Enter sends; Shift+Enter adds a line; isComposing skips the Enter that
+  // confirms Chinese/Japanese input-method text.
   input.addEventListener("keydown", e => {
     if (e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); submit(); }
   });
+  $("new").onclick = () => { location.hash = ""; openFromUrl(); };
+  $("menu").onclick = () => $("sidebar").classList.toggle("open");
+  window.addEventListener("hashchange", openFromUrl);
+  openFromUrl();
 </script>
 </body>
 </html>

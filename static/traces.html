@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Traces · AI Dashboard</title>
+<style>
+  :root { --bg:#fafaf9; --panel:#f3f2f0; --fg:#1c1917; --muted:#78716c; --line:#e7e5e4;
+          --card:#ffffff; --model:#2563eb; --tool:#9333ea; --bad:#dc2626; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#161514; --panel:#1d1c1a; --fg:#e7e5e4; --muted:#a8a29e; --line:#2e2b29;
+            --card:#242220; --model:#60a5fa; --tool:#c084fc; --bad:#f87171; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; height:100dvh; display:flex; flex-direction:column; background:var(--bg); color:var(--fg);
+         font:14px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+  header { padding:12px 18px; border-bottom:1px solid var(--line); display:flex; gap:16px; align-items:baseline; }
+  header b { font-size:15px; }
+  header a { color:var(--muted); font-size:13px; }
+  .wrap { flex:1; display:flex; min-height:0; }
+
+  /* Left: one row per turn */
+  #runs { width:340px; flex-shrink:0; overflow-y:auto; border-right:1px solid var(--line); background:var(--panel); }
+  #runs a { display:block; padding:10px 16px; border-bottom:1px solid var(--line); text-decoration:none; color:inherit; }
+  #runs a.active { background:var(--line); }
+  .q { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-weight:500; }
+  .sub { color:var(--muted); font-size:12.5px; }
+  .bad { color:var(--bad); }
+
+  /* Right: the steps of the selected turn */
+  #detail { flex:1; overflow-y:auto; padding:18px 22px; }
+  #detail h2 { font-size:16px; margin:0 0 4px; }
+  .step { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px 14px; margin:12px 0; }
+  .step.err { border-color:var(--bad); }
+  .head { display:flex; gap:10px; align-items:baseline; flex-wrap:wrap; }
+  .kind { font-size:11.5px; font-weight:600; text-transform:uppercase; letter-spacing:.04em; }
+  .kind.model { color:var(--model); } .kind.tool { color:var(--tool); }
+  .name { font-weight:600; }
+  .nums { color:var(--muted); font-size:12.5px; margin-left:auto; }
+  .summary { margin:6px 0 0; white-space:pre-wrap; word-wrap:break-word; }
+  details { margin-top:6px; }
+  summary { cursor:pointer; color:var(--muted); font-size:12.5px; }
+  pre { background:var(--panel); padding:10px; border-radius:8px; overflow-x:auto; font-size:12px;
+        max-height:420px; overflow-y:auto; white-space:pre-wrap; word-wrap:break-word; }
+  .empty { color:var(--muted); padding:20px; }
+
+  @media (max-width: 720px) {
+    .wrap { flex-direction:column; }
+    #runs { width:auto; max-height:38vh; border-right:0; border-bottom:1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header><b>Trace view</b><span class="sub">every model call and tool call, per turn</span><a href="/">Back to chat</a></header>
+<div class="wrap">
+  <nav id="runs"></nav>
+  <section id="detail"><div class="empty">Pick a turn on the left.</div></section>
+</div>
+
+<script>
+  // ---------------------------------------------------------------------
+  // Reads the `trace` table through /api/runs and shows, for one turn
+  // (one user message), each step the agent took:
+  //   MODEL  what the model was sent (input) and what it answered (output)
+  //   TOOL   which tool ran, with what arguments, and what it returned
+  // The selected turn lives in the URL: /traces#run=<run_id>
+  // ---------------------------------------------------------------------
+
+  const $ = id => document.getElementById(id);
+  const el = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+
+  // SQLite drops the time zone, so times arrive without one; they are UTC.
+  const parseTime = s => new Date(/[zZ]|[+-]\d\d:\d\d$/.test(s) ? s : s + "Z");
+  const when = s => parseTime(s).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  const tokens = (a, b) => (a == null && b == null) ? "" : ` · ${a ?? "?"} in / ${b ?? "?"} out tokens`;
+  const pretty = s => { try { return JSON.stringify(JSON.parse(s), null, 2); } catch { return s; } };
+
+  function selectedRun() {
+    const m = location.hash.match(/run=([\w-]+)/);
+    return m ? m[1] : null;
+  }
+
+  async function loadRuns() {
+    const runs = await (await fetch("/api/runs")).json();
+    const nav = $("runs");
+    nav.innerHTML = "";
+    if (!runs.length) { nav.appendChild(el("div", "empty", "No turns yet. Send a chat message first.")); return; }
+    for (const r of runs) {
+      const a = el("a", r.run_id === selectedRun() ? "active" : "");
+      a.href = "#run=" + r.run_id;
+      a.appendChild(el("div", "q", r.question || "(no question saved)"));
+      const tools = r.tools.length ? " · " + r.tools.join(", ") : "";
+      const steps = r.steps === 1 ? "1 step" : `${r.steps} steps`;
+      const toks = r.tokens_in != null ? ` · ${r.tokens_in + (r.tokens_out ?? 0)} tokens` : "";
+      a.appendChild(el("div", "sub", `${when(r.started_at)} · ${steps} · ${(r.latency_ms / 1000).toFixed(1)} s${toks}${tools}`));
+      if (r.errors) a.appendChild(el("div", "sub bad", `${r.errors} failed step${r.errors > 1 ? "s" : ""}`));
+      nav.appendChild(a);
+    }
+    // Nothing selected yet: open the newest turn.
+    if (!selectedRun()) location.hash = "run=" + runs[0].run_id;
+  }
+
+  async function loadRun() {
+    const runId = selectedRun();
+    if (!runId) return;
+    document.querySelectorAll("#runs a").forEach(a => a.classList.toggle("active", a.hash === "#run=" + runId));
+
+    const res = await fetch("/api/runs/" + runId);
+    const steps = res.ok ? await res.json() : null;
+    // If another turn was picked while we waited, let that load draw instead.
+    if (runId !== selectedRun()) return;
+    const detail = $("detail");
+    detail.innerHTML = "";
+    if (!steps) { detail.appendChild(el("div", "empty", "That turn doesn't exist.")); return; }
+
+    detail.appendChild(el("h2", "", `Turn ${runId}`));
+    detail.appendChild(el("div", "sub", `${steps.length === 1 ? "1 step" : steps.length + " steps"} · ` +
+      `conversation ${steps[0].conversation_id} · ${when(steps[0].created_at)}`));
+
+    for (const s of steps) {
+      const card = el("div", "step" + (s.error ? " err" : ""));
+      const head = el("div", "head");
+      head.append(el("span", "kind " + s.kind, s.kind), el("span", "name", s.name),
+                  el("span", "nums", `round ${s.step} · ${s.latency_ms} ms${tokens(s.tokens_in, s.tokens_out)}`));
+      card.appendChild(head);
+
+      // A one-line summary of what happened, before the raw data.
+      let summary = "";
+      if (s.kind === "model") {
+        try {
+          const out = JSON.parse(s.output || "{}");
+          const calls = (out.tool_calls || []).map(c => `${c.name}(${c.arguments})`);
+          summary = calls.length ? "Asked to run: " + calls.join(", ") : (out.content ? "Answered: " + out.content : "");
+          if (out.content && calls.length) summary = "Said: " + out.content + "\n" + summary;
+        } catch {}
+      } else {
+        const out = s.output.length > 300 ? s.output.slice(0, 300) + "…" : s.output;
+        summary = "Arguments: " + s.input + (s.error ? "" : "\nReturned: " + out);
+      }
+      if (s.error) summary = "Error: " + s.error + (summary ? "\n" + summary : "");
+      if (summary) card.appendChild(el("div", "summary" + (s.error ? " bad" : ""), summary));
+
+      for (const [label, value] of [["Input: exactly what was sent", s.input], ["Output: exactly what came back", s.output]]) {
+        const d = el("details");
+        d.appendChild(el("summary", "", label));
+        d.appendChild(el("pre", "", pretty(value)));
+        card.appendChild(d);
+      }
+      detail.appendChild(card);
+    }
+  }
+
+  window.addEventListener("hashchange", loadRun);
+  // With no turn in the URL, loadRuns() picks the newest one, which fires
+  // hashchange -> loadRun. Otherwise load the turn from the URL directly.
+  // (Check the URL BEFORE loadRuns changes it.)
+  const runInUrl = selectedRun();
+  loadRuns().then(() => { if (runInUrl) loadRun(); });
+</script>
+</body>
+</html>

@@ -1,0 +1,55 @@
+"""The HTTP layer: streaming chat over SSE, conversation list, trace endpoints."""
+import json
+
+from fastapi.testclient import TestClient
+
+from app.agent.llm import ModelReply, TextDelta, ToolCall
+from app.main import app
+
+client = TestClient(app)
+
+
+def read_sse(response) -> list[dict]:
+    return [json.loads(line[6:]) for line in response.text.split("\n\n") if line.startswith("data: ")]
+
+
+def test_chat_streams_events_and_lists_conversation(fake_llm):
+    fake_llm([
+        [ModelReply("", [ToolCall("c1", "get_current_time", "{}")])],
+        [TextDelta("Noon."), ModelReply("Noon.")],
+    ])
+    response = client.post("/api/chat", json={"message": "What time is it?"})
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("text/event-stream")
+    events = read_sse(response)
+    assert [e["type"] for e in events] == ["conversation", "tool_start", "tool_end", "text", "done"]
+
+    conversation_id, run_id = events[0]["id"], events[-1]["run_id"]
+    convs = client.get("/api/conversations").json()
+    assert convs[0]["id"] == conversation_id and convs[0]["title"] == "What time is it?"
+
+    msgs = client.get(f"/api/conversations/{conversation_id}/messages").json()
+    assert [(m["role"], m["content"]) for m in msgs] == [("user", "What time is it?"), ("assistant", "Noon.")]
+
+    runs = client.get("/api/runs").json()
+    assert runs[0]["run_id"] == run_id
+    assert runs[0]["steps"] == 3 and runs[0]["tools"] == ["get_current_time"]
+    assert runs[0]["question"] == "What time is it?" and runs[0]["errors"] == 0
+
+    steps = client.get(f"/api/runs/{run_id}").json()
+    assert [s["kind"] for s in steps] == ["model", "tool", "model"]
+
+
+def test_empty_message_rejected():
+    assert client.post("/api/chat", json={"message": "   "}).status_code == 400
+
+
+def test_missing_things_are_404():
+    assert client.get("/api/conversations/999/messages").status_code == 404
+    assert client.get("/api/runs/nope").status_code == 404
+
+
+def test_pages_are_served():
+    with TestClient(app) as c:  # `with` runs startup (init_db), like the real server
+        assert "AI Dashboard" in c.get("/").text
+        assert "Trace view" in c.get("/traces").text
