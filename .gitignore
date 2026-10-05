@@ -2,4 +2,8 @@
 .venv/
 __pycache__/
 *.pyc
+.pytest_cache/
 .DS_Store
+
+# Everything personal lives here: the database, tokens, your profile.
+data/
