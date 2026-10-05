@@ -14,12 +14,13 @@ as events happen. Each `data:` line followed by a blank line is one event.
 The page reads them as they arrive (see static/index.html).
 """
 import json
-from typing import Iterator
+from typing import AsyncIterator, Generator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlmodel import select
+from starlette.concurrency import iterate_in_threadpool
 
 from app.agent import loop
 from app.db.models import Conversation, Message
@@ -33,20 +34,32 @@ class ChatRequest(BaseModel):
     conversation_id: int | None = None  # None = start a new conversation
 
 
-def sse(events: Iterator[dict]) -> Iterator[str]:
-    """Format each event dict as one Server-Sent Events message."""
-    for event in events:
-        yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+async def sse(events: Generator[dict, None, None]) -> AsyncIterator[str]:
+    """Format each event dict as one Server-Sent Events message.
+
+    run_turn is a normal (not async) generator whose steps can be slow (a
+    model call takes seconds). iterate_in_threadpool runs each step in a
+    background thread, so a slow model doesn't block other requests.
+
+    The `finally` matters when the browser disconnects mid-reply. The server
+    then stops reading from us, but it does NOT close run_turn: that would
+    only happen whenever Python's garbage collector got round to it, and
+    until then the reply and its trace stay unsaved. Closing it ourselves
+    runs run_turn's own `finally` (which saves them) right away.
+    """
+    try:
+        async for event in iterate_in_threadpool(events):
+            yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+    finally:
+        events.close()
 
 
 @router.post("/chat")
-def chat(req: ChatRequest):
+async def chat(req: ChatRequest):
     if not req.message.strip():
         raise HTTPException(400, "Empty message")
-    # StreamingResponse pulls from the generator and sends each piece as soon
-    # as it's yielded. Because run_turn is a normal (not async) generator,
-    # FastAPI runs it in a background thread, so a slow model doesn't block
-    # other requests.
+    # StreamingResponse pulls from sse() and sends each piece as soon as it's
+    # yielded.
     return StreamingResponse(
         sse(loop.run_turn(req.conversation_id, req.message)),
         media_type="text/event-stream",
